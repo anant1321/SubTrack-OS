@@ -1,4 +1,4 @@
-# SubTrack
+# SubTrack OS - OSL Mini Project
 
 OS scheduling simulation in a single C file. Each subscription notification is a process;
 SMS, Email and Webhook workers are locks.
