@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>SubTrack Visualizer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = { theme: { extend: { fontFamily: {
+    sans: ['"IBM Plex Sans"', 'system-ui', 'sans-serif'],
+    mono: ['"IBM Plex Mono"', 'ui-monospace', 'monospace'] } } } };
+</script>
+<!-- telemetry.js is written by the C engine next to this file; ignored if missing -->
+<script src="telemetry.js"></script>
+<style>
+  html, body { background: #ffffff; }
+  .toast { transition: opacity .3s ease, transform .3s ease; }
+  .toast.leaving { opacity: 0; transform: translateX(12px); }
+  .toast { animation: toastIn .35s ease both; }
+  @keyframes toastIn { from { opacity: 0; transform: translateX(16px); } to { opacity: 1; transform: none; } }
+  @media (prefers-reduced-motion: reduce) { .toast { transition: none; animation: none; } }
+
+  /* ---------- Gantt charts ---------- */
+  :root { --t0:#be123c; --t1:#0369a1; --t2:#6d28d9; }
+  .g-line { margin-bottom: 14px; min-width: 760px; }
+  .g-strip, .g-axis { display: flex; }
+  .g-slot { box-sizing: border-box; padding: 0 1px; }
+  .g-seg { display: flex; align-items: center; justify-content: center; height: 46px; border-radius: 4px; box-sizing: border-box;
+           color: #fff; font: 500 12px 'IBM Plex Mono', ui-monospace, monospace; overflow: hidden; white-space: nowrap; padding: 0 4px; }
+  .g-seg.idle { background: #e2e8f0; color: #64748b; }
+  .g-seg.future { background: #fff; border: 1px dashed #cbd5e1; }
+  .g-seg.now, .gc.now { box-shadow: 0 0 0 2px #0f172a; position: relative; z-index: 1; }
+  .g-axis .g-slot { text-align: center; font: 10px 'IBM Plex Mono', ui-monospace, monospace; color: #64748b; padding-top: 3px; }
+  .g-axis .g-slot.now { color: #0f172a; font-weight: 600; }
+  .g-row { display: flex; align-items: center; margin-bottom: 2px; }
+  .g-label { position: sticky; left: 0; z-index: 3; background: #fff; width: 160px; flex: none; padding-right: 8px; font-size: 12px;
+             overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .g-head .g-label { background: #fff; }
+  .gc { width: var(--cw); height: var(--ch); flex: none; margin-right: 2px; border-radius: 3px; box-sizing: border-box;
+        display: flex; align-items: center; justify-content: center; font: 500 10px 'IBM Plex Mono', ui-monospace, monospace; color: #fff; }
+  .gc.hd { height: 16px; background: none; color: #64748b; font-weight: 400; }
+  .gc.hd.now { color: #0f172a; font-weight: 700; box-shadow: none; }
+  .gc.fut { background: #fff; border: 1px dashed #e2e8f0; }
+  .gc.none { border: 1px solid #f1f5f9; }
+  .gc.s-ready { background: #e2e8f0; }
+  .gc.s-blocked { background: #fcd34d; }
+  .gc.s-late { background: #fda4af; }
+  .gc.s-r0 { background: var(--t0); } .gc.s-r1 { background: var(--t1); } .gc.s-r2 { background: var(--t2); }
+  .gc.dl { box-shadow: inset 0 0 0 2px #e11d48; }
+  .gc.dl.fut { background: #fff1f2; border-color: #fda4af; box-shadow: none; }
+  .gc.num { color: #1e293b; }
+  .g-sw { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: -2px; margin-right: 5px; }
+  .g-tab { border: 1px solid #cbd5e1; background: #fff; color: #334155; border-radius: 9999px; padding: 4px 12px; font-size: 12px; }
+  .g-tab:hover { background: #f8fafc; }
+  .g-tab.on { background: #1e293b; border-color: #1e293b; color: #fff; }
+</style>
+</head>
+<body class="bg-white text-slate-800 font-sans antialiased">
+
+<div id="toasts" class="fixed top-4 right-4 z-50 flex w-80 max-w-[calc(100vw-2rem)] flex-col gap-2" aria-live="polite"></div>
+
+<header class="border-b border-slate-200">
+  <div class="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-5 py-4">
+    <div>
+      <h1 class="text-xl font-semibold tracking-tight">SubTrack</h1>
+      <p class="text-sm text-slate-500">Replay of the OS scheduling simulation, one tick per day</p>
+    </div>
+    <label class="cursor-pointer rounded border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 focus-within:ring-2 focus-within:ring-sky-500">
+      Open telemetry.json and input.json
+      <input id="file" type="file" accept=".json,application/json" multiple class="sr-only">
+    </label>
+  </div>
+</header>
+
+<main class="mx-auto max-w-6xl px-5 py-6">
+
+  <section id="empty" class="rounded border border-dashed border-slate-300 p-8 text-center">
+    <p class="font-medium">No telemetry loaded yet</p>
+    <p class="mt-1 text-sm text-slate-500">Run <span class="font-mono">./subtrack</span> to generate it, then reload this page. Or pick <span class="font-mono">telemetry.json</span> and <span class="font-mono">input.json</span> together with the button above.</p>
+  </section>
+
+  <div id="app" class="hidden space-y-6">
+
+    <!-- playback controls -->
+    <section class="flex flex-wrap items-center gap-3 rounded border border-slate-200 bg-slate-50 p-3">
+      <button id="btnReset" class="rounded border border-slate-300 bg-white px-3 py-1.5 text-sm hover:bg-slate-100">Reset</button>
+      <button id="btnBack"  class="rounded border border-slate-300 bg-white px-3 py-1.5 text-sm hover:bg-slate-100">Back</button>
+      <button id="btnPlay"  class="w-20 rounded bg-sky-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-700">Play</button>
+      <button id="btnStep"  class="rounded border border-slate-300 bg-white px-3 py-1.5 text-sm hover:bg-slate-100">Step</button>
+      <select id="speed" class="rounded border border-slate-300 bg-white px-2 py-1.5 text-sm" aria-label="Playback speed">
+        <option value="4500">Slow (4.5 s per tick)</option>
+        <option value="2500" selected>Normal (2.5 s per tick)</option>
+        <option value="1000">Fast (1 s per tick)</option>
+      </select>
+      <input id="slider" type="range" min="1" value="1" class="min-w-[160px] flex-1 accent-sky-600" aria-label="Tick">
+      <span id="tickLabel" class="font-mono text-sm text-slate-600"></span>
+    </section>
+
+    <!-- running totals up to the current tick -->
+    <section id="stats" class="grid grid-cols-2 divide-x divide-y divide-slate-200 overflow-hidden rounded border border-slate-200 sm:grid-cols-4"></section>
+
+    <!-- Gantt charts -->
+    <section id="gantt" class="rounded border border-slate-200">
+      <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-3 py-2">
+        <h2 class="text-sm font-semibold">Gantt charts</h2>
+        <div id="gTabs" class="flex flex-wrap gap-2"></div>
+      </div>
+      <p id="gHelp" class="px-3 pt-2 text-xs text-slate-600"></p>
+      <div id="gBody" class="p-3"></div>
+      <div id="gLegend" class="flex flex-wrap gap-x-4 gap-y-1 border-t border-slate-100 px-3 py-2 text-xs text-slate-600"></div>
+    </section>
+
+    <!-- subscriptions, with live status for the current tick -->
+    <section>
+      <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <h2 class="text-sm font-semibold">Subscriptions</h2>
+        <div class="flex flex-wrap items-center gap-2">
+          <div id="subChips" class="flex flex-wrap gap-2"></div>
+          <input id="subSearch" type="search" placeholder="Search subscriptions" aria-label="Search subscriptions"
+                 class="rounded border border-slate-300 bg-white px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500">
+        </div>
+      </div>
+      <div class="overflow-hidden rounded border border-slate-200">
+        <div class="hidden grid-cols-12 gap-3 border-b border-slate-200 bg-slate-50 px-3 py-2 text-xs font-medium text-slate-500 md:grid">
+          <div class="col-span-4">Subscription</div>
+          <div class="col-span-2">Price and owner</div>
+          <div class="col-span-2">Deadline</div>
+          <div class="col-span-2">Priority</div>
+          <div class="col-span-2">Status</div>
+        </div>
+        <div id="subList" class="max-h-[34rem] overflow-y-auto"></div>
+      </div>
+    </section>
+
+    <div class="grid gap-6 lg:grid-cols-3">
+      <section class="space-y-6">
+        <div>
+          <h2 class="mb-2 text-sm font-semibold">Free worker channels</h2>
+          <div id="workers" class="space-y-3 rounded border border-slate-200 p-4"></div>
+        </div>
+        <div>
+          <h2 class="mb-2 text-sm font-semibold">Notification colors</h2>
+          <div id="legend" class="space-y-2 rounded border border-slate-200 p-4 text-sm"></div>
+        </div>
+      </section>
+
+      <section class="lg:col-span-2">
+        <h2 id="tickTitle" class="mb-2 text-sm font-semibold"></h2>
+        <div id="tickEvents" class="space-y-2"></div>
+      </section>
+    </div>
+
+    <!-- everything that happened so far -->
+    <section>
+      <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <h2 class="text-sm font-semibold">Event log up to this tick</h2>
+        <div id="chips" class="flex flex-wrap gap-2"></div>
+      </div>
+      <div id="log" class="max-h-96 space-y-1 overflow-y-auto rounded border border-slate-200 p-2"></div>
+    </section>
+  </div>
+</main>
+
+<script>
+/* Event groups, headers and colors from the report (light-theme tints) */
+const CATS = {
+  green: { name: 'Green', header: '[SUCCESS] DISPATCH CONFIRMED',
+    events: ['TASK_COMPLETED', 'CPU_EXECUTE'],
+    meaning: 'Task is running or finished its dispatch',
+    border: 'border-emerald-500', text: 'text-emerald-700', bg: 'bg-emerald-50', dot: 'bg-emerald-500' },
+  amber: { name: 'Amber', header: '[WARNING] STATE ESCALATION',
+    events: ['AGING_PROMOTION', 'ORPHAN_REPARENTED', 'RATE_LIMIT_BLOCKED'],
+    meaning: 'Aging promotion, orphan adoption or Banker\'s deferral',
+    border: 'border-amber-500', text: 'text-amber-700', bg: 'bg-amber-50', dot: 'bg-amber-500' },
+  red: { name: 'Red', header: '[CRITICAL] DEADLINE EXCEEDED',
+    events: ['DEADLINE_ENDED', 'DEADLINE_BREACH', 'RAG_DEADLOCK_DETECTED', 'DEADLOCK_PREEMPTION'],
+    meaning: 'Deadline passed or a lock cycle was broken',
+    border: 'border-rose-500', text: 'text-rose-700', bg: 'bg-rose-50', dot: 'bg-rose-500' },
+  blue: { name: 'Sky blue', header: '[INFO] SYSTEM TELEMETRY',
+    events: ['DEADLINE_COUNTDOWN', 'USER_DELETED', 'ZOMBIE_REAPED'],
+    meaning: 'Countdowns, user deletion and cleanup',
+    border: 'border-sky-500', text: 'text-sky-700', bg: 'bg-sky-50', dot: 'bg-sky-500' }
+};
+const SEVERITY = ['red', 'amber', 'green', 'blue'];   // toast order
+
+const catOfEvent = {};
+Object.entries(CATS).forEach(([key, c]) => c.events.forEach(ev => catOfEvent[ev] = key));
+const catOf = e => catOfEvent[e.event] || 'blue';
+
+let data = [], subs = [], idx = 0, timer = null, filter = 'all', subFilter = 'all', capacity = {};
+const $ = id => document.getElementById(id);
+const esc = v => String(v).replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
+
+function load(json) {
+  if (!Array.isArray(json) || !json.length || !json[0].logs) { alert('This does not look like a SubTrack telemetry file.'); return; }
+  data = json; idx = 0; filter = 'all'; pause();
+  capacity = Object.assign({}, DEFAULT_CAP);
+  data.forEach(t => Object.entries(t.workers).forEach(([k, v]) => capacity[k] = Math.max(capacity[k] || 0, v)));
+  $('slider').max = data.length;
+  $('empty').classList.add('hidden');
+  $('app').classList.remove('hidden');
+  renderLegend();
+  render(false);
+}
+
+function describe(e) {
+  const skip = ['event', 'pid', 'service', 'msg'];
+  const extras = Object.entries(e).filter(([k]) => !skip.includes(k)).map(([k, v]) => k + ': ' + v).join(', ');
+  return [extras, e.msg].filter(Boolean).join(' | ');
+}
+
+function who(e) { return e.pid ? 'PID ' + e.pid + ' ' + e.service : ''; }
+
+function eventRow(e, tickLabel) {
+  const c = CATS[catOf(e)];
+  return `<div class="border-l-4 ${c.border} ${c.bg} rounded-r px-3 py-2">
+    <div class="flex items-baseline justify-between gap-3">
+      <span class="text-sm font-medium ${c.text}">${esc(e.event)}</span>
+      <span class="text-xs text-slate-600">${tickLabel ? esc(tickLabel) + ' ' : ''}${esc(who(e))}</span>
+    </div>
+    <div class="font-mono text-xs text-slate-600">${esc(describe(e))}</div>
+  </div>`;
+}
+
+function totalsUpTo(n) {
+  const t = { done: 0, exceeded: 0, blocked: 0, aging: 0, orphans: 0, deadlocks: 0 };
+  for (let i = 0; i <= n; i++) data[i].logs.forEach(e => {
+    if (e.event === 'TASK_COMPLETED') t.done++;
+    else if (e.event === 'DEADLINE_ENDED') t.exceeded++;
+    else if (e.event === 'RATE_LIMIT_BLOCKED') t.blocked++;
+    else if (e.event === 'AGING_PROMOTION') t.aging++;
+    else if (e.event === 'ORPHAN_REPARENTED') t.orphans++;
+    else if (e.event === 'RAG_DEADLOCK_DETECTED') t.deadlocks++;
+  });
+  return t;
+}
+
+function renderStats(tick) {
+  const t = totalsUpTo(idx);
+  const pids = new Set();
+  data.forEach(x => x.logs.forEach(e => { if (e.pid) pids.add(e.pid); }));
+  const items = [
+    ['Date', tick.current_date], ['Completed', t.done + ' of ' + pids.size],
+    ['Past deadline', t.exceeded], ['Rate-limit blocks', t.blocked],
+    ['Aging promotions', t.aging], ['Orphans adopted', t.orphans],
+    ['Deadlocks broken', t.deadlocks], ['Tick', tick.tick + ' of ' + data.length]
+  ];
+  $('stats').innerHTML = items.map(([label, value]) =>
+    `<div class="p-3"><div class="text-xs text-slate-500">${esc(label)}</div><div class="mt-0.5 text-lg font-semibold">${esc(value)}</div></div>`
+  ).join('');
+}
+
+function renderWorkers(tick) {
+  $('workers').innerHTML = Object.entries(tick.workers).map(([name, free]) => {
+    const cap = capacity[name] || 1, pct = Math.round(free / cap * 100);
+    return `<div>
+      <div class="mb-1 flex justify-between text-sm"><span>${esc(name)}</span><span class="font-mono text-slate-600">${free} / ${cap} free</span></div>
+      <div class="h-2 rounded bg-slate-100"><div class="h-2 rounded bg-sky-500" style="width:${pct}%"></div></div>
+    </div>`;
+  }).join('');
+}
+
+function renderLegend() {
+  $('legend').innerHTML = Object.values(CATS).map(c =>
+    `<div class="flex gap-2"><span class="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full ${c.dot}"></span>
+      <div><div class="font-medium">${esc(c.name)}: ${esc(c.meaning)}</div>
+      <div class="font-mono text-xs text-slate-500">${esc(c.events.join(', '))}</div></div></div>`
+  ).join('');
+}
+
+function renderLog() {
+  const rows = [];
+  const counts = { all: 0, green: 0, amber: 0, red: 0, blue: 0 };
+  for (let i = 0; i <= idx; i++) data[i].logs.forEach(e => {
+    if (e.event === 'TICK_END') return;
+    const key = catOf(e);
+    counts.all++; counts[key]++;
+    if (filter === 'all' || filter === key) rows.push([i, e]);
+  });
+  const chip = (key, label) => `<button data-filter="${key}" class="rounded-full border px-3 py-1 text-xs ${filter === key ? 'border-slate-800 bg-slate-800 text-white' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'}">${label} (${counts[key]})</button>`;
+  $('chips').innerHTML = chip('all', 'All') + Object.entries(CATS).map(([k, c]) => chip(k, c.name)).join('');
+  $('chips').querySelectorAll('button').forEach(b => b.onclick = () => { filter = b.dataset.filter; renderLog(); });
+
+  const shown = rows.slice(-300).reverse();
+  $('log').innerHTML = shown.length
+    ? shown.map(([i, e]) => eventRow(e, 'T' + data[i].tick)).join('')
+    : '<p class="p-3 text-sm text-slate-500">Nothing in this group yet.</p>';
+}
+
+function showToasts(tick) {
+  const box = $('toasts');
+  box.innerHTML = '';
+  const events = tick.logs.filter(e => e.event !== 'TICK_END')
+    .sort((a, b) => SEVERITY.indexOf(catOf(a)) - SEVERITY.indexOf(catOf(b)));
+  const list = events.slice(0, 3);
+  const life = timer ? Math.max(2200, Number($('speed').value) - 500) : 5000;   // gone before the next tick
+  list.forEach(e => {
+    const c = CATS[catOf(e)];
+    const el = document.createElement('div');
+    el.className = `toast rounded border border-slate-200 border-l-4 ${c.border} bg-white p-3 shadow-lg`;
+    el.innerHTML = `<div class="text-xs font-semibold ${c.text}">${esc(c.header)}</div>
+      <div class="mt-0.5 text-sm">${esc(e.event)}</div>
+      <div class="text-xs text-slate-600">${esc(who(e) || describe(e))}</div>`;
+    box.appendChild(el);
+    setTimeout(() => { el.classList.add('leaving'); setTimeout(() => el.remove(), 350); }, life);
+  });
+  if (events.length > list.length) {
+    const more = document.createElement('div');
+    more.className = 'toast rounded border border-slate-200 bg-white p-2 text-xs text-slate-600 shadow';
+    more.textContent = '+' + (events.length - list.length) + ' more events this tick';
+    box.appendChild(more);
+    setTimeout(() => more.remove(), life);
+  }
+}
+
+/* ---------- subscription list ---------- */
+const TIERS = ['Tier 0 (SRTF)', 'Tier 1 (Round-Robin)', 'Tier 2 (FCFS)'];
+
+/* Rebuild each subscription's state by replaying events up to tick n */
+function statusMap(n) {
+  const m = {};
+  subs.forEach(s => m[s.pid] = { executed: 0, done: false, blocked: false, aborted: false, flagged: false, orphan: false, tier: s.tier });
+  for (let i = 0; i <= n; i++) data[i].logs.forEach(e => {
+    const s = m[e.pid];
+    if (!s) return;
+    if (e.event === 'CPU_EXECUTE') { s.executed++; s.blocked = false; }
+    else if (e.event === 'TASK_COMPLETED') s.done = true;
+    else if (e.event === 'RATE_LIMIT_BLOCKED') s.blocked = true;
+    else if (e.event === 'DEADLOCK_PREEMPTION') s.aborted = true;
+    else if (e.event === 'DEADLINE_ENDED') { s.flagged = true; s.tier = 0; }
+    else if (e.event === 'AGING_PROMOTION') s.tier = 0;
+    else if (e.event === 'ORPHAN_REPARENTED') s.orphan = true;
+  });
+  return m;
+}
+
+function statusOf(sub, st, tickNo) {
+  if (st.aborted) return { key: 'aborted', label: 'Aborted',             cls: 'bg-rose-50 text-rose-700' };
+  if (st.done)    return { key: 'done',    label: 'Notified',            cls: 'bg-emerald-50 text-emerald-700' };
+  if (st.executed > 0) return { key: 'pending', label: 'Sending',        cls: 'bg-sky-50 text-sky-700' };
+  if (st.blocked) return { key: 'pending', label: 'Waiting for workers', cls: 'bg-amber-50 text-amber-700' };
+  if (tickNo < sub.arrival) return { key: 'pending', label: 'Not arrived', cls: 'bg-slate-100 text-slate-600' };
+  return { key: 'pending', label: 'Queued', cls: 'bg-slate-100 text-slate-700' };
+}
+
+const dayMs = 86400000;
+const toUtc = iso => Date.parse(iso + 'T00:00:00Z');
+const fmtDate = iso => new Date(toUtc(iso)).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+
+function avatar(name) {
+  let hue = 0;
+  for (const ch of name) hue = (hue * 31 + ch.charCodeAt(0)) % 360;
+  return `<span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-semibold"
+    style="background:hsl(${hue} 70% 92%);color:hsl(${hue} 55% 28%)">${esc(name[0].toUpperCase())}</span>`;
+}
+
+function deadlineText(sub, st, today) {
+  const days = Math.round((toUtc(sub.deadline) - toUtc(today)) / dayMs);
+  let note, cls = 'text-slate-500';
+  if (st.done) note = 'Handled';
+  else if (days < 0) { note = (-days) + (days === -1 ? ' day' : ' days') + ' overdue'; cls = 'font-medium text-rose-700'; }
+  else if (days === 0) { note = 'Due today'; cls = 'font-medium text-amber-700'; }
+  else { note = 'Due in ' + days + (days === 1 ? ' day' : ' days'); if (days <= 3) cls = 'font-medium text-sky-700'; }
+  return `<div class="text-sm">${esc(fmtDate(sub.deadline))}</div><div class="text-xs ${cls}">${note}</div>`;
+}
+
+function renderSubs(tick) {
+  if (!subs.length) {
+    $('subChips').innerHTML = '';
+    $('subList').innerHTML = '<p class="p-4 text-sm text-slate-500">Subscription details are missing. Run <span class="font-mono">./subtrack</span> and reload, or pick <span class="font-mono">input.json</span> together with <span class="font-mono">telemetry.json</span>.</p>';
+    return;
+  }
+  const map = statusMap(idx);
+  const rows = subs.map(s => ({ s, st: map[s.pid], status: statusOf(s, map[s.pid], tick.tick) }));
+
+  const counts = { all: rows.length, pending: 0, done: 0, overdue: 0 };
+  rows.forEach(r => {
+    if (r.status.key === 'pending') counts.pending++;
+    if (r.status.key === 'done') counts.done++;
+    if (r.st.flagged && !r.st.done && !r.st.aborted) counts.overdue++;
+  });
+  const chips = [['all', 'All'], ['pending', 'Pending'], ['done', 'Notified'], ['overdue', 'Overdue']];
+  $('subChips').innerHTML = chips.map(([k, label]) =>
+    `<button data-sub="${k}" class="rounded-full border px-3 py-1 text-xs ${subFilter === k ? 'border-slate-800 bg-slate-800 text-white' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'}">${label} (${counts[k]})</button>`
+  ).join('');
+  $('subChips').querySelectorAll('button').forEach(b => b.onclick = () => { subFilter = b.dataset.sub; renderSubs(tick); });
+
+  const q = $('subSearch').value.trim().toLowerCase();
+  const shown = rows.filter(r => {
+    if (q && !(r.s.service + ' ' + r.s.plan + ' ' + r.s.alert).toLowerCase().includes(q)) return false;
+    if (subFilter === 'pending') return r.status.key === 'pending';
+    if (subFilter === 'done') return r.status.key === 'done';
+    if (subFilter === 'overdue') return r.st.flagged && !r.st.done && !r.st.aborted;
+    return true;
+  });
+
+  $('subList').innerHTML = shown.length ? shown.map(({ s, st, status }) => {
+    const pct = Math.round(st.executed / s.burst_time * 100);
+    const escalated = st.tier < s.tier ? '<div class="text-xs text-amber-700">Escalated to Tier 0</div>' : '';
+    const orphan = st.orphan ? '<div class="text-xs text-slate-500">Adopted by SYSTEM_INIT</div>' : '';
+    return `<div class="grid grid-cols-12 items-center gap-x-3 gap-y-2 border-b border-slate-100 px-3 py-3 last:border-b-0">
+      <div class="col-span-12 flex items-center gap-3 md:col-span-4">${avatar(s.service)}
+        <div class="min-w-0"><div class="truncate font-medium">${esc(s.service)} <span class="font-normal text-slate-500">${esc(s.plan)}</span></div>
+        <div class="truncate text-xs text-slate-500">${esc(s.alert)}</div></div></div>
+      <div class="col-span-6 md:col-span-2"><div class="text-sm">${esc(s.price)}</div><div class="text-xs text-slate-500">User ${s.user_id}</div>${orphan}</div>
+      <div class="col-span-6 md:col-span-2">${deadlineText(s, st, tick.current_date)}</div>
+      <div class="col-span-6 md:col-span-2"><div class="text-sm">${TIERS[st.tier]}</div>${escalated}</div>
+      <div class="col-span-6 md:col-span-2"><span class="inline-block rounded-full px-2.5 py-0.5 text-xs font-medium ${status.cls}">${status.label}</span>
+        <div class="mt-1.5 h-1.5 rounded bg-slate-100"><div class="h-1.5 rounded bg-sky-500" style="width:${pct}%"></div></div>
+        <div class="mt-0.5 text-xs text-slate-500">${st.executed} of ${s.burst_time} ticks</div></div>
+    </div>`;
+  }).join('') : '<p class="p-4 text-sm text-slate-500">No subscriptions match.</p>';
+}
+
+/* ====================== Gantt charts ====================== */
+const DEFAULT_CAP = { SMS: 4, Email: 4, Webhook: 3 };      // same as the engine's worker capacities
+const T_COL = ['#be123c', '#0369a1', '#6d28d9'];
+const T_NAME = ['Tier 0 · SRTF', 'Tier 1 · Round-Robin', 'Tier 2 · FCFS'];
+const G_TABS = [['cpu', 'CPU timeline'], ['proc', 'Per subscription'], ['sys', 'Queues & workers'], ['met', 'Metrics']];
+const G_HELP = {
+  cpu: 'One CPU, so only one task runs per tick. Each box is a stretch of CPU time; wider means longer. The box color is the tier the task was in when it ran.',
+  proc: 'One row per subscription, one box per tick. Blue/red/purple = running, grey = ready and waiting, yellow = waiting for workers, pink = waiting and past its deadline. A red outline marks the deadline day.',
+  sys: 'The first three rows are the MLFQ tiers: which task the CPU took from each tier. Below that are scheduler events per tick and how many worker channels (locks) are in use.',
+  met: 'Classic scheduling numbers, filled in as tasks finish. Response = first run − arrival. Turnaround = finish − arrival + 1. Waiting = turnaround − burst.'
+};
+let gTab = 'cpu', gCache = null;
+
+function buildGantt() {
+  if (gCache && gCache.d === data && gCache.s === subs) return gCache;
+  const n = data.length, tier = {}, blocked = {}, late = {}, first = {}, finish = {}, state = {}, info = {};
+  subs.forEach(s => { info[s.pid] = s; tier[s.pid] = s.tier; state[s.pid] = new Array(n).fill(''); });
+  const dateIdx = {}; data.forEach((t, i) => dateIdx[t.current_date] = i);
+  const ticks = [];
+  data.forEach((t, i) => {
+    const r = { run: null, service: '', tier: 1, blocked: 0, aging: 0, missed: 0, orphans: 0, done: 0 };
+    t.logs.forEach(e => {
+      const p = e.pid;
+      if (e.event === 'DEADLINE_ENDED') { late[p] = true; tier[p] = 0; r.missed++; }
+      else if (e.event === 'AGING_PROMOTION') { tier[p] = 0; r.aging++; }
+      else if (e.event === 'RATE_LIMIT_BLOCKED') { blocked[p] = true; r.blocked++; }
+      else if (e.event === 'ORPHAN_REPARENTED') r.orphans++;
+      else if (e.event === 'CPU_EXECUTE') {
+        r.run = p; r.service = e.service; r.tier = tier[p] === undefined ? 1 : tier[p];
+        blocked[p] = false; if (first[p] === undefined) first[p] = i;
+      }
+      else if (e.event === 'TASK_COMPLETED') { finish[p] = i; r.done++; }
+    });
+    ticks.push(r);
+    subs.forEach(s => {
+      const p = s.pid;
+      if (r.run === p) state[p][i] = 'r' + r.tier;
+      else if (finish[p] !== undefined) state[p][i] = '';
+      else if (t.tick >= s.arrival) state[p][i] = late[p] ? 'late' : blocked[p] ? 'blocked' : 'ready';
+    });
+  });
+  const dl = {};
+  subs.forEach(s => { if (dateIdx[s.deadline] !== undefined) dl[s.pid] = dateIdx[s.deadline]; });
+  gCache = { d: data, s: subs, ticks, state, dl, first, finish, info };
+  return gCache;
+}
+
+const gSlot = (k, per, inner) => `<div class="g-slot" style="width:${k / per * 100}%">${inner}</div>`;
+
+function ganttCpu(G) {
+  const PER = 20, n = data.length, T = G.ticks;
+  let html = '';
+  for (let a = 0; a < n; a += PER) {
+    const b = Math.min(a + PER, n);
+    let strip = '', axis = '', i = a;
+    while (i < b) {
+      if (i > idx) { strip += gSlot(1, PER, '<div class="g-seg future"></div>'); i++; continue; }
+      const r = T[i]; let j = i + 1;
+      while (j < b && j <= idx && T[j].run === r.run && T[j].tier === r.tier) j++;
+      const k = j - i, cur = idx >= i && idx < j ? ' now' : '';
+      const when = k > 1 ? `ticks ${data[i].tick}-${data[j - 1].tick}` : `tick ${data[i].tick}`;
+      if (r.run === null) {
+        strip += gSlot(k, PER, `<div class="g-seg idle${cur}" title="${when}: CPU idle">${k > 1 ? 'idle' : ''}</div>`);
+      } else {
+        const label = k >= 3 ? `${r.run} ${r.service}` : String(r.run);
+        strip += gSlot(k, PER, `<div class="g-seg${cur}" style="background:${T_COL[r.tier]}" title="${esc(when + ' · ' + data[i].current_date + ' · ' + r.service + ' (PID ' + r.run + ') · ' + T_NAME[r.tier])}">${esc(label)}</div>`);
+      }
+      i = j;
+    }
+    for (let t = a; t < a + PER; t++)
+      axis += `<div class="g-slot${t === idx ? ' now' : ''}" style="width:${100 / PER}%">${t < n ? data[t].tick : ''}</div>`;
+    html += `<div class="g-line"><div class="g-strip">${strip}</div><div class="g-axis">${axis}</div></div>`;
+  }
+  const r = T[idx];
+  const now = r.run === null ? 'CPU idle' : `running ${esc(r.service)} (PID ${r.run}) from ${T_NAME[r.tier]}`;
+  return `<p class="mb-3 text-sm"><span class="font-medium">Tick ${data[idx].tick}</span> · ${esc(data[idx].current_date)} · ${now}</p>
+    <div class="overflow-x-auto">${html}</div>`;
+}
+
+/* generic row/column grid; rows = [{label, title}], cell(rowIndex, tickIndex) -> {cls, text, title, style} */
+function gMatrix(rows, cell, cw, ch) {
+  const n = data.length;
+  let head = '<div class="g-row g-head"><div class="g-label"></div>';
+  for (let i = 0; i < n; i++) head += `<div class="gc hd${i === idx ? ' now' : ''}">${data[i].tick}</div>`;
+  head += '</div>';
+  const body = rows.map((row, r) => {
+    let cells = '';
+    for (let i = 0; i < n; i++) {
+      const c = cell(r, i);
+      cells += `<div class="gc ${c.cls || ''}${i === idx && !(c.cls || '').includes('fut') ? ' now' : ''}" ${c.style ? `style="${c.style}"` : ''} ${c.title ? `title="${esc(c.title)}"` : ''}>${c.text === undefined || c.text === '' ? '' : esc(c.text)}</div>`;
+    }
+    return `<div class="g-row"><div class="g-label" title="${esc(row.title || row.label)}">${esc(row.label)}</div>${cells}</div>`;
+  }).join('');
+  return `<div id="gScroll" class="overflow-auto" style="--cw:${cw}px;--ch:${ch}px;max-height:34rem">${head}${body}</div>`;
+}
+
+function ganttProc(G) {
+  if (!subs.length) return '<p class="text-sm text-slate-500">Subscription details are missing, so rows cannot be drawn. Reload with telemetry.js or pick input.json too.</p>';
+  const rows = subs.map(s => ({ label: s.pid + ' ' + s.service, title: s.service + ' · ' + s.plan + ' · ' + s.alert }));
+  return gMatrix(rows, (r, i) => {
+    const s = subs[r], st = G.state[s.pid][i], isDl = G.dl[s.pid] === i;
+    if (i > idx) return { cls: 'fut' + (isDl ? ' dl' : ''), title: isDl ? s.service + ' deadline' : '' };
+    const names = { ready: 'ready, waiting for CPU', blocked: 'waiting for workers', late: 'waiting, deadline passed', r0: 'running (Tier 0)', r1: 'running (Tier 1)', r2: 'running (Tier 2)' };
+    return { cls: (st ? 's-' + st : 'none') + (isDl ? ' dl' : ''), title: `${s.service} · tick ${data[i].tick}${st ? ' · ' + names[st] : ''}${isDl ? ' · DEADLINE' : ''}` };
+  }, 18, 18);
+}
+
+function ganttSys(G) {
+  const T = G.ticks;
+  const rows = [
+    { label: T_NAME[0] }, { label: T_NAME[1] }, { label: T_NAME[2] },
+    { label: 'Blocked (no workers)' }, { label: 'Aging promotions' }, { label: 'Deadlines missed' }, { label: 'Orphans adopted' }, { label: 'Tasks completed' }
+  ];
+  const wnames = Object.keys(data[0].workers);
+  wnames.forEach(w => rows.push({ label: w + ' workers in use' }));
+  const ev = [['blocked', '245,158,11'], ['aging', '14,165,233'], ['missed', '225,29,72'], ['orphans', '100,116,139'], ['done', '16,185,129']];
+  return gMatrix(rows, (r, i) => {
+    if (i > idx) return { cls: 'fut' };
+    const t = T[i];
+    if (r < 3) return t.run !== null && t.tier === r
+      ? { cls: 's-r' + r, text: t.run, title: `tick ${data[i].tick} · ${t.service} (PID ${t.run}) ran from ${T_NAME[r]}` } : { cls: 'none' };
+    if (r < 8) {
+      const [key, rgb] = ev[r - 3], v = t[key];
+      return v ? { cls: 'num', text: v, style: `background:rgba(${rgb},${Math.min(1, .3 + v * .12)})`, title: `tick ${data[i].tick} · ${rows[r].label}: ${v}` } : { cls: 'none' };
+    }
+    const name = wnames[r - 8], cap = capacity[name] || 1, used = Math.max(0, cap - data[i].workers[name]);
+    return used ? { cls: 'num', text: used, style: `background:rgba(2,132,199,${.2 + .6 * used / cap})`, title: `tick ${data[i].tick} · ${name}: ${used} of ${cap} in use` } : { cls: 'none', title: `tick ${data[i].tick} · ${name}: all ${cap} free` };
+  }, 26, 24);
+}
+
+function ganttMetrics(G) {
+  if (!subs.length) return '<p class="text-sm text-slate-500">Subscription details are missing, so metrics cannot be computed.</p>';
+  const rows = subs.map(s => {
+    const f = G.first[s.pid], e = G.finish[s.pid];
+    const started = f !== undefined && f <= idx, done = e !== undefined && e <= idx;
+    const o = { s, start: started ? data[f].tick : null, end: done ? data[e].tick : null };
+    if (started) o.resp = o.start - s.arrival;
+    if (done) { o.turn = o.end - s.arrival + 1; o.wait = o.turn - s.burst_time; }
+    return o;
+  });
+  const fin = rows.filter(r => r.end !== null), st = rows.filter(r => r.start !== null);
+  const avg = (a, k) => a.length ? (a.reduce((x, r) => x + r[k], 0) / a.length).toFixed(1) : '–';
+  const busy = G.ticks.slice(0, idx + 1).filter(t => t.run !== null).length;
+  const tiles = [['Avg waiting time', avg(fin, 'wait') + ' ticks'], ['Avg turnaround', avg(fin, 'turn') + ' ticks'], ['Avg response', avg(st, 'resp') + ' ticks'],
+    ['CPU utilization', Math.round(busy / (idx + 1) * 100) + '%'], ['Throughput', (fin.length / (idx + 1)).toFixed(2) + ' tasks/tick']];
+  const th = 'px-2 py-1.5 text-right font-medium', v = x => x === null || x === undefined ? '<span class="text-slate-300">–</span>' : x;
+  return `<div class="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-5">${tiles.map(([l, x]) => `<div class="rounded border border-slate-200 p-2"><div class="text-xs text-slate-500">${l}</div><div class="text-base font-semibold">${x}</div></div>`).join('')}</div>
+  <div class="max-h-96 overflow-auto rounded border border-slate-200"><table class="w-full text-sm">
+    <thead class="sticky top-0 bg-slate-50 text-xs text-slate-500"><tr><th class="px-2 py-1.5 text-left font-medium">Subscription</th><th class="${th}">Arrival</th><th class="${th}">Burst</th><th class="${th}">First run</th><th class="${th}">Finish</th><th class="${th}">Response</th><th class="${th}">Waiting</th><th class="${th}">Turnaround</th></tr></thead>
+    <tbody class="font-mono text-xs">${rows.map(r => `<tr class="border-t border-slate-100"><td class="px-2 py-1 text-left font-sans text-sm">${esc(r.s.pid + ' ' + r.s.service)}</td><td class="px-2 py-1 text-right">${r.s.arrival}</td><td class="px-2 py-1 text-right">${r.s.burst_time}</td><td class="px-2 py-1 text-right">${v(r.start)}</td><td class="px-2 py-1 text-right">${v(r.end)}</td><td class="px-2 py-1 text-right">${v(r.resp)}</td><td class="px-2 py-1 text-right">${v(r.wait)}</td><td class="px-2 py-1 text-right">${v(r.turn)}</td></tr>`).join('')}</tbody></table></div>`;
+}
+
+function gLegend() {
+  const sw = (c, l, extra = '') => `<span><span class="g-sw" style="background:${c};${extra}"></span>${l}</span>`;
+  const tiers = T_COL.map((c, i) => sw(c, T_NAME[i])).join('');
+  const L = {
+    cpu: tiers + sw('#e2e8f0', 'CPU idle') + sw('#fff', 'not reached yet', 'border:1px dashed #cbd5e1'),
+    proc: tiers + sw('#e2e8f0', 'ready, waiting') + sw('#fcd34d', 'waiting for workers') + sw('#fda4af', 'waiting, past deadline') + sw('#fff', 'deadline day', 'box-shadow:inset 0 0 0 2px #e11d48'),
+    sys: tiers + sw('rgba(245,158,11,.6)', 'blocked') + sw('rgba(14,165,233,.6)', 'aging') + sw('rgba(225,29,72,.6)', 'deadline missed') + sw('rgba(2,132,199,.6)', 'workers in use (darker = busier)'),
+    met: 'Times are in ticks (1 tick = 1 day).'
+  };
+  return L[gTab];
+}
+
+function renderGantt() {
+  if (!data.length) return;
+  $('gTabs').innerHTML = G_TABS.map(([k, l]) => `<button data-g="${k}" class="g-tab${gTab === k ? ' on' : ''}">${l}</button>`).join('');
+  $('gTabs').querySelectorAll('button').forEach(b => b.onclick = () => { gTab = b.dataset.g; renderGantt(); });
+  $('gHelp').textContent = G_HELP[gTab];
+  const old = $('gScroll'), sl = old ? old.scrollLeft : 0, stp = old ? old.scrollTop : 0;
+  const G = buildGantt();
+  $('gBody').innerHTML = { cpu: ganttCpu, proc: ganttProc, sys: ganttSys, met: ganttMetrics }[gTab](G);
+  $('gLegend').innerHTML = gLegend();
+  const sc = $('gScroll');
+  if (sc) {                                   // keep the current tick in view while playing
+    sc.scrollLeft = sl; sc.scrollTop = stp;
+    const nowEl = sc.querySelector('.hd.now');
+    if (nowEl) {
+      const x = nowEl.offsetLeft - sc.offsetLeft;
+      if (x < sc.scrollLeft + 170 || x > sc.scrollLeft + sc.clientWidth - 40) sc.scrollLeft = Math.max(0, x - sc.clientWidth / 2);
+    }
+  }
+}
+
+function render(withToasts) {
+  const tick = data[idx];
+  $('slider').value = tick.tick;
+  $('tickLabel').textContent = 'tick ' + tick.tick + ' / ' + data.length + '  ' + tick.current_date;
+  $('tickTitle').textContent = 'Events on ' + tick.current_date + ' (tick ' + tick.tick + ')';
+  const events = tick.logs.filter(e => e.event !== 'TICK_END');
+  $('tickEvents').innerHTML = events.length ? events.map(e => eventRow(e)).join('')
+    : '<p class="rounded border border-slate-200 p-3 text-sm text-slate-500">CPU idle, nothing happened on this tick.</p>';
+  renderStats(tick); renderWorkers(tick); renderGantt(); renderSubs(tick); renderLog();
+  if (withToasts) showToasts(tick); else $('toasts').innerHTML = '';
+}
+
+function pause() { clearInterval(timer); timer = null; $('btnPlay').textContent = 'Play'; }
+function play() {
+  if (idx >= data.length - 1) idx = 0;
+  $('btnPlay').textContent = 'Pause';
+  timer = setInterval(() => {
+    if (idx < data.length - 1) { idx++; render(true); } else pause();
+  }, Number($('speed').value));
+}
+
+$('btnPlay').onclick  = () => timer ? pause() : play();
+$('btnStep').onclick  = () => { pause(); if (idx < data.length - 1) { idx++; render(true); } };
+$('btnBack').onclick  = () => { pause(); if (idx > 0) { idx--; render(false); } };
+$('btnReset').onclick = () => { pause(); idx = 0; render(false); };
+$('slider').oninput   = e => { pause(); idx = Number(e.target.value) - 1; render(false); };
+$('speed').onchange   = () => { if (timer) { pause(); play(); } };
+$('subSearch').oninput = () => { if (data.length) renderSubs(data[idx]); };
+const isTelemetry = j => Array.isArray(j) && j.length && j[0].logs;
+const isSubs = j => Array.isArray(j) && j.length && j[0].deadline && j[0].service;
+
+$('file').onchange = e => {
+  const files = Array.from(e.target.files);
+  if (!files.length) return;
+  Promise.all(files.map(f => f.text().then(JSON.parse))).then(parsed => {
+    const sub = parsed.find(isSubs), tele = parsed.find(isTelemetry);
+    if (sub) subs = sub;
+    if (tele) load(tele);
+    else if (sub && data.length) render(false);
+    else alert('Pick telemetry.json (and input.json for the subscription list).');
+  }).catch(() => alert('Could not read those files as JSON.'));
+};
+
+/* telemetry.js (written by the engine) provides both data sets; otherwise try fetch */
+if (window.SUBSCRIPTIONS) subs = window.SUBSCRIPTIONS;
+if (window.TELEMETRY) load(window.TELEMETRY);
+else Promise.all([fetch('telemetry.json').then(r => r.json()), fetch('input.json').then(r => r.json()).catch(() => [])])
+  .then(([t, s]) => { if (isSubs(s)) subs = s; load(t); }).catch(() => {});
+</script>
+</body>
+</html>
