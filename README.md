@@ -1,6 +1,6 @@
 <div align="center">
 
-# ⏱️ SubTrack OS
+# 🔔 SubTrack OS
 
 ### An OS-Driven Subscription Tracking & Notification Engine
 
