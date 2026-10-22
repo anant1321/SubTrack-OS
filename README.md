@@ -1,6 +1,8 @@
 <div align="center">
 
-# 🔔 SubTrack OS
+<img src="assets/banners/osl-mini-project.svg" alt="OSL Mini Project: SubTrack" width="100%">
+
+# 🔔 SubTrack
 
 ### An OS-Driven Subscription Tracking & Notification Engine
 
@@ -8,6 +10,10 @@
 
 ![Language](https://img.shields.io/badge/engine-C99-00599C?style=for-the-badge&logo=c&logoColor=white)
 ![Dashboard](https://img.shields.io/badge/dashboard-HTML%20%C2%B7%20Tailwind%20%C2%B7%20JS-0EA5E9?style=for-the-badge)
+![Dependencies](https://img.shields.io/badge/external%20libraries-0-16A34A?style=for-the-badge)
+![Deterministic](https://img.shields.io/badge/runs-deterministic-7C3AED?style=for-the-badge)
+![Deadlocks](https://img.shields.io/badge/deadlocks%20(Banker's%20ON)-0-16A34A?style=for-the-badge)
+![License](https://img.shields.io/badge/license-MIT-64748B?style=for-the-badge)
 
 | 50 | 3 | 3 | 129 | 0 |
 |:---:|:---:|:---:|:---:|:---:|
@@ -487,6 +493,21 @@ void reap_zombies(Sim *s) {
 | **Data & Persistence** | `input.json` (in) • `telemetry.json` + `telemetry.js` (out), file-based and event-sourced |
 | **Platform** | Windows (MinGW or WSL) • Linux |
 
+<div align="center">
+
+<table>
+<tr>
+<td><img src="assets/banners/c-language.svg" alt="C Language" width="100%"></td>
+<td><img src="assets/banners/javascript.svg" alt="JavaScript" width="100%"></td>
+</tr>
+<tr>
+<td><img src="assets/banners/html.svg" alt="HTML5" width="100%"></td>
+<td><img src="assets/banners/css.svg" alt="CSS3 and Tailwind" width="100%"></td>
+</tr>
+</table>
+
+</div>
+
 **Tech stack improvement.** The project deliberately pushes past a typical coursework build: a dependency-free JSON parser written in C (`read_file`, `find_value`, `read_int / read_string / read_triple`, `parse_record`), a simulation core cleanly decoupled from its UI through a file contract, and a dashboard that renders four chart types directly from the event log with no charting library.
 
 ---
@@ -783,6 +804,9 @@ SubTrack/
 ├── subtrack.c        # the whole engine, 9 numbered sections, read top to bottom
 ├── input.json        # 50 mock subscriptions (each becomes a process)
 ├── index.html        # dashboard (Gantt views, toasts)
+├── telemetry.json    # written by the engine, one object per tick
+├── telemetry.js      # copy of the telemetry so index.html opens by double-click
+└── assets/           # dashboard screenshots used in this README
 ```
 
 ### Tunable Settings
@@ -822,6 +846,17 @@ Edit the `#define` lines at the top of `subtrack.c`:
 
 ---
 
+### 👥 Core Engineers
+
+| Name |
+|---|
+| **Anant Kulkarni** Team Lead |
+| **Soham Kulkarni** |
+| **Bala Jee** |
+| **Raghav Vyavahare** |
+
+---
+
 ## 📚 References
 
 1. Silberschatz, A., Galvin, P. B., & Gagne, G. (2018). *Operating system concepts* (10th ed.). Wiley.
@@ -831,3 +866,12 @@ Edit the `#define` lines at the top of `subtrack.c`:
 5. GNU Project. (n.d.). *GCC online documentation*. https://gcc.gnu.org/onlinedocs/
 6. Tailwind CSS. (n.d.). *Documentation*. https://tailwindcss.com/docs
 
+<div align="center">
+
+<img src="assets/banners/osl-mini-project.svg" alt="OSL Mini Project" width="70%">
+
+### 🛠️ Built for the OSL Mini Project by
+
+**Anant Kulkarni** · **Soham Kulkarni** · **Bala Jee** · **Raghav Vyavahare**
+
+</div>
