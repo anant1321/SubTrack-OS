@@ -5,11 +5,11 @@
 *.DS_Store
 
 # Telemetry data (often generated dynamically or containing local logs)
-SubTrack/telemetry.json
-SubTrack/telemetry.js
+telemetry.json
+telemetry.js
 
 # Local environment or temporary input files that shouldn't be tracked
-SubTrack/input.json
+input.json
 
 # IDE and Editor files
 .vscode/
