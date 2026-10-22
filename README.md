@@ -10,10 +10,6 @@
 
 ![Language](https://img.shields.io/badge/engine-C99-00599C?style=for-the-badge&logo=c&logoColor=white)
 ![Dashboard](https://img.shields.io/badge/dashboard-HTML%20%C2%B7%20Tailwind%20%C2%B7%20JS-0EA5E9?style=for-the-badge)
-![Dependencies](https://img.shields.io/badge/external%20libraries-0-16A34A?style=for-the-badge)
-![Deterministic](https://img.shields.io/badge/runs-deterministic-7C3AED?style=for-the-badge)
-![Deadlocks](https://img.shields.io/badge/deadlocks%20(Banker's%20ON)-0-16A34A?style=for-the-badge)
-![License](https://img.shields.io/badge/license-MIT-64748B?style=for-the-badge)
 
 | 50 | 3 | 3 | 129 | 0 |
 |:---:|:---:|:---:|:---:|:---:|
