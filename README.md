@@ -783,9 +783,6 @@ SubTrack/
 ├── subtrack.c        # the whole engine, 9 numbered sections, read top to bottom
 ├── input.json        # 50 mock subscriptions (each becomes a process)
 ├── index.html        # dashboard (Gantt views, toasts)
-├── telemetry.json    # written by the engine, one object per tick
-├── telemetry.js      # copy of the telemetry so index.html opens by double-click
-└── assets/           # dashboard screenshots used in this README
 ```
 
 ### Tunable Settings
